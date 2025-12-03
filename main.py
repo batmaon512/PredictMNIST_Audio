@@ -5,6 +5,10 @@ from flask import Flask, request, jsonify, send_from_directory
 
 from HMM import continueHMM
 from preprocessing import extract_features
+# Thêm alias cho module 'modules'
+import sys
+import HMM as _hmm_module
+sys.modules.setdefault('modules', _hmm_module)  # để pickle tìm thấy 'modules'
 
 # Đường dẫn tuyệt đối
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
