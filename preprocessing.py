@@ -20,7 +20,7 @@ N_FFT = 512 #int(0.025*SR) # khoảng lấy mẫu fft 25ms
 N_HOP = 256 #int(0.010*SR) # bước nhảy giữa 2 frame
 N_MFCC = 13
 N_MELS =40
-TOP_DB = 40
+TOP_DB = 20
 pre_emphasis = 0.95
 def extract_features(file_path):
     try:
