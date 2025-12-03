@@ -1,0 +1,8 @@
+flask
+numpy
+scikit-learn
+librosa
+soundfile
+audioread
+tqdm
+scipy
