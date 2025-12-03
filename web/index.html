@@ -1,18 +1,149 @@
-<!doctype html>
-<html><head><meta charset="utf-8"><title>Predict WAV</title></head>
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <title>PredictMNIST Audio</title>
+  <style>
+    button { margin: 8px; padding: 8px 12px; }
+    #status { margin-top: 8px; }
+    #result { white-space: pre-wrap; margin-top: 10px; }
+    audio { display:block; margin-top:10px; }
+  </style>
+</head>
 <body>
-  <h3>Dự đoán từ WAV</h3>
-  <input id="file" type="file" accept="audio/wav"><button id="predictBtn">Dự đoán</button>
-  <div id="status"></div><div id="result"></div>
+  <h1>Ghi âm và dự đoán</h1>
+  <button id="startBtn">Bắt đầu ghi</button>
+  <button id="stopBtn" disabled>Dừng ghi</button>
+  <div id="status"></div>
+  <audio id="player" controls></audio>
+  <div id="result"></div>
+
   <script>
-    document.getElementById("predictBtn").onclick = async () => {
-      const f = document.getElementById("file").files[0];
-      if(!f){ alert("Chọn file WAV trước"); return; }
-      document.getElementById("status").textContent="Đang dự đoán...";
-      const fd=new FormData(); fd.append("audio",f,f.name);
-      const res=await fetch("/predict",{method:"POST",body:fd}); const j=await res.json();
-      document.getElementById("status").textContent=res.ok?"Xong":"Lỗi";
-      document.getElementById("result").textContent=res.ok?`Kết quả: ${j.label} | ${(j.confidence*100).toFixed(1)}%`:JSON.stringify(j);
-    };
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const statusEl = document.getElementById('status');
+    const player = document.getElementById('player');
+    const resultEl = document.getElementById('result');
+
+    let mediaRecorder;
+    let audioChunks = [];
+    let stream;
+
+    // Ghi thành WAV ở client (PCM 16-bit) để backend đọc dễ bằng soundfile
+    function encodeWAVFromPCM(float32Array, sampleRate = 44100) {
+      // Chuyển float [-1,1] -> PCM16
+      const bufferLength = float32Array.length;
+      const pcm16 = new Int16Array(bufferLength);
+      for (let i = 0; i < bufferLength; i++) {
+        let s = Math.max(-1, Math.min(1, float32Array[i]));
+        pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+      }
+      // WAV header
+      const byteRate = sampleRate * 2; // mono 16-bit
+      const blockAlign = 2;
+      const dataSize = pcm16.length * 2;
+      const buffer = new ArrayBuffer(44 + dataSize);
+      const view = new DataView(buffer);
+
+      function writeString(view, offset, string) {
+        for (let i = 0; i < string.length; i++) {
+          view.setUint8(offset + i, string.charCodeAt(i));
+        }
+      }
+
+      let offset = 0;
+      writeString(view, offset, 'RIFF'); offset += 4;
+      view.setUint32(offset, 36 + dataSize, true); offset += 4;
+      writeString(view, offset, 'WAVE'); offset += 4;
+      writeString(view, offset, 'fmt '); offset += 4;
+      view.setUint32(offset, 16, true); offset += 4;             // fmt chunk size
+      view.setUint16(offset, 1, true); offset += 2;              // audio format PCM
+      view.setUint16(offset, 1, true); offset += 2;              // channels: mono
+      view.setUint32(offset, sampleRate, true); offset += 4;     // sample rate
+      view.setUint32(offset, byteRate, true); offset += 4;       // byte rate
+      view.setUint16(offset, blockAlign, true); offset += 2;     // block align
+      view.setUint16(offset, 16, true); offset += 2;             // bits per sample
+      writeString(view, offset, 'data'); offset += 4;
+      view.setUint32(offset, dataSize, true); offset += 4;
+      // PCM data
+      for (let i = 0; i < pcm16.length; i++, offset += 2) {
+        view.setInt16(offset, pcm16[i], true);
+      }
+      return new Blob([view], { type: 'audio/wav' });
+    }
+
+    async function startRecording() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        statusEl.textContent = 'Đang ghi...';
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+
+        // Dùng WebAudio để lấy PCM và tự encode WAV
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 44100 });
+        const source = audioCtx.createMediaStreamSource(stream);
+
+        const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+        audioChunks = [];
+        processor.onaudioprocess = (e) => {
+          const input = e.inputBuffer.getChannelData(0);
+          audioChunks.push(new Float32Array(input));
+        };
+        source.connect(processor);
+        processor.connect(audioCtx.destination);
+
+        // Lưu tham chiếu để dừng sau
+        mediaRecorder = { audioCtx, source, processor, sampleRate: audioCtx.sampleRate };
+      } catch (err) {
+        statusEl.textContent = 'Không thể truy cập microphone: ' + err;
+      }
+    }
+
+    async function stopRecording() {
+      stopBtn.disabled = true;
+      startBtn.disabled = false;
+      statusEl.textContent = 'Đang xử lý...';
+
+      // Dừng WebAudio pipeline
+      try {
+        mediaRecorder.processor.disconnect();
+        mediaRecorder.source.disconnect();
+        mediaRecorder.audioCtx.close();
+      } catch {}
+
+      if (stream) {
+        stream.getTracks().forEach(t => t.stop());
+      }
+
+      // Ghép các chunk float32 rồi encode WAV
+      const totalLen = audioChunks.reduce((sum, a) => sum + a.length, 0);
+      const merged = new Float32Array(totalLen);
+      let offset = 0;
+      for (const a of audioChunks) {
+        merged.set(a, offset);
+        offset += a.length;
+      }
+      const wavBlob = encodeWAVFromPCM(merged, 44100);
+
+      // Hiển thị và gửi lên server
+      const url = URL.createObjectURL(wavBlob);
+      player.src = url;
+
+      const formData = new FormData();
+      formData.append('audio', wavBlob, 'recording.wav');
+
+      try {
+        const resp = await fetch('/predict', { method: 'POST', body: formData });
+        const data = await resp.json();
+        resultEl.textContent = JSON.stringify(data, null, 2);
+        statusEl.textContent = 'Xong.';
+      } catch (e) {
+        statusEl.textContent = 'Gửi thất bại: ' + e;
+      }
+    }
+
+    startBtn.addEventListener('click', startRecording);
+    stopBtn.addEventListener('click', stopRecording);
   </script>
-</body></html>
+</body>
+</html>
