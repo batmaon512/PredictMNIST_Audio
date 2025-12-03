@@ -1,51 +1,25 @@
-# ...existing code...
 import os, json, pickle
 import numpy as np
 from flask import Flask, request, jsonify, send_from_directory
 
-from HMM import continueHMM
-from preprocessing import extract_features
-# Thêm alias cho module 'modules'
+# Alias để giải quyết pickle tham chiếu 'modules' và 'modules.HMM'
 import sys
 import HMM as _hmm_module
-sys.modules.setdefault('modules', _hmm_module)  # để pickle tìm thấy 'modules'
+sys.modules.setdefault('modules', _hmm_module)
+sys.modules.setdefault('modules.HMM', _hmm_module)
+
+from HMM import continueHMM
+from preprocessing import extract_features
+from training import load_model  # dùng hàm load_model từ training.py
 
 # Đường dẫn tuyệt đối
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_DIR = os.path.join(BASE_DIR, "hmm_model_1")
 
-# Hàm load_model (theo training.py)
-def load_model(load_path):
-    if not os.path.exists(load_path):
-        raise FileNotFoundError(f"Không tìm thấy thư mục: {load_path}")
-
-    models_path = os.path.join(load_path, 'models.pkl')
-    with open(models_path, 'rb') as f:
-        models = pickle.load(f)
-
-    scaler_path = os.path.join(load_path, 'scaler.pkl')
-    with open(scaler_path, 'rb') as f:
-        scaler = pickle.load(f)
-
-    metrics_path = os.path.join(load_path, 'metrics.json')
-    with open(metrics_path, 'r', encoding='utf-8') as f:
-        metrics = json.load(f)
-    if 'confusion_matrix' in metrics:
-        metrics['confusion_matrix'] = np.array(metrics['confusion_matrix'])
-    if 'y_pred' in metrics:
-        metrics['y_pred'] = np.array(metrics['y_pred'])
-
-    summary_path = os.path.join(load_path, 'summary.json')
-    with open(summary_path, 'r', encoding='utf-8') as f:
-        summary = json.load(f)
-
-    return models, scaler, metrics, summary
-
-# Tải mô hình
+# Tải mô hình qua training.load_model
 models_loaded, scaler, metrics, summary = load_model(MODEL_DIR)
 class_names_loaded = summary.get("class_names", [])
 
-# Flask app với static folder tuyệt đối
 app = Flask(__name__, static_folder=os.path.join(BASE_DIR, "web"))
 
 @app.get("/")
@@ -60,7 +34,6 @@ def predict():
     file = request.files["audio"]
     data = file.read()
 
-    # Render: ghi vào /tmp
     tmp_path = os.path.join("/tmp", "temp_upload.wav")
     with open(tmp_path, "wb") as f:
         f.write(data)
@@ -84,8 +57,10 @@ def predict():
     probs = np.exp(lp - lp.max()); probs = probs / probs.sum()
     conf = float(probs[pred_idx])
 
-    try: os.remove(tmp_path)
-    except: pass
+    try:
+        os.remove(tmp_path)
+    except:
+        pass
 
     return jsonify({
         "label": pred_class,
