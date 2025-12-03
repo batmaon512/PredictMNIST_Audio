@@ -1,14 +1,18 @@
+import os
+import json
+import pickle
+import warnings
 import numpy as np
 from sklearn.metrics import accuracy_score, confusion_matrix, precision_score, recall_score, f1_score, classification_report
-import matplotlib.pyplot as plt
-import seaborn as sns
-import warnings
-# from .HMM import continueHMM
-from HMM import continueHMM  # sửa: import tuyệt đối để dùng từ root
-import pickle
-import json
-import os
-from datetime import datetime
+from HMM import continueHMM  # tuyệt đối
+
+# Các import dùng để vẽ biểu đồ chỉ phục vụ training, tránh import khi deploy
+try:
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+except Exception:
+    plt = None
+    sns = None
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
@@ -277,41 +281,29 @@ def load_model(load_path):
     print(f"   - Đường dẫn: {load_path}")
     print(f"{'='*60}\n")
     
-    # Kiểm tra thư mục tồn tại
     if not os.path.exists(load_path):
         raise FileNotFoundError(f"Không tìm thấy thư mục: {load_path}")
-    
-    # 1. Tải models
+
     models_path = os.path.join(load_path, 'models.pkl')
     with open(models_path, 'rb') as f:
         models = pickle.load(f)
-    print(f"✅ Đã tải models từ: {models_path}")
-    
-    # 2. Tải scaler
+
     scaler_path = os.path.join(load_path, 'scaler.pkl')
     with open(scaler_path, 'rb') as f:
         scaler = pickle.load(f)
-    print(f"✅ Đã tải scaler từ: {scaler_path}")
-    
-    # 3. Tải metrics
+
     metrics_path = os.path.join(load_path, 'metrics.json')
     with open(metrics_path, 'r', encoding='utf-8') as f:
         metrics = json.load(f)
-    
-    # Chuyển confusion_matrix và y_pred về numpy array
     if 'confusion_matrix' in metrics:
         metrics['confusion_matrix'] = np.array(metrics['confusion_matrix'])
     if 'y_pred' in metrics:
         metrics['y_pred'] = np.array(metrics['y_pred'])
-    
-    print(f"✅ Đã tải metrics từ: {metrics_path}")
-    
-    # 4. Tải summary
+
     summary_path = os.path.join(load_path, 'summary.json')
     with open(summary_path, 'r', encoding='utf-8') as f:
         summary = json.load(f)
-    print(f"✅ Đã tải summary từ: {summary_path}")
-    
+
     print(f"\n{'='*60}")
     print(f"✅ HOÀN THÀNH TẢI MÔ HÌNH")
     print(f"{'='*60}")
