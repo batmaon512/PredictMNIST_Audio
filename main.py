@@ -5,23 +5,44 @@ from flask import Flask, request, jsonify, send_from_directory
 
 from HMM import continueHMM
 from preprocessing import extract_features
-# ...existing code...
 
-MODEL_DIR = os.path.join("hmm_model_1")
+# Đường dẫn tuyệt đối
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_DIR = os.path.join(BASE_DIR, "hmm_model_1")
 
-def load_model_from_directory(load_path: str):
-    with open(os.path.join(load_path, "models.pkl"), "rb") as f:
+# Hàm load_model (theo training.py)
+def load_model(load_path):
+    if not os.path.exists(load_path):
+        raise FileNotFoundError(f"Không tìm thấy thư mục: {load_path}")
+
+    models_path = os.path.join(load_path, 'models.pkl')
+    with open(models_path, 'rb') as f:
         models = pickle.load(f)
-    with open(os.path.join(load_path, "scaler.pkl"), "rb") as f:
+
+    scaler_path = os.path.join(load_path, 'scaler.pkl')
+    with open(scaler_path, 'rb') as f:
         scaler = pickle.load(f)
-    with open(os.path.join(load_path, "summary.json"), "r", encoding="utf-8") as f:
+
+    metrics_path = os.path.join(load_path, 'metrics.json')
+    with open(metrics_path, 'r', encoding='utf-8') as f:
+        metrics = json.load(f)
+    if 'confusion_matrix' in metrics:
+        metrics['confusion_matrix'] = np.array(metrics['confusion_matrix'])
+    if 'y_pred' in metrics:
+        metrics['y_pred'] = np.array(metrics['y_pred'])
+
+    summary_path = os.path.join(load_path, 'summary.json')
+    with open(summary_path, 'r', encoding='utf-8') as f:
         summary = json.load(f)
-    class_names = summary["class_names"]
-    return models, class_names, scaler
 
-models_loaded, class_names_loaded, scaler = load_model_from_directory(MODEL_DIR)
+    return models, scaler, metrics, summary
 
-app = Flask(__name__, static_folder="web")
+# Tải mô hình
+models_loaded, scaler, metrics, summary = load_model(MODEL_DIR)
+class_names_loaded = summary.get("class_names", [])
+
+# Flask app với static folder tuyệt đối
+app = Flask(__name__, static_folder=os.path.join(BASE_DIR, "web"))
 
 @app.get("/")
 def index():
@@ -35,7 +56,8 @@ def predict():
     file = request.files["audio"]
     data = file.read()
 
-    tmp_path = "temp_upload.wav"
+    # Render: ghi vào /tmp
+    tmp_path = os.path.join("/tmp", "temp_upload.wav")
     with open(tmp_path, "wb") as f:
         f.write(data)
 
@@ -53,7 +75,7 @@ def predict():
             log_probs.append(model.forward(mfcc_scaled)[0])
 
     pred_idx = int(np.argmax(log_probs))
-    pred_class = class_names_loaded[pred_idx]
+    pred_class = class_names_loaded[pred_idx] if class_names_loaded else str(pred_idx)
     lp = np.array(log_probs)
     probs = np.exp(lp - lp.max()); probs = probs / probs.sum()
     conf = float(probs[pred_idx])
