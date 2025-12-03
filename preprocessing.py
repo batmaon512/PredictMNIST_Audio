@@ -1,58 +1,29 @@
 import os
 import numpy as np
-import librosa
-from tqdm import tqdm
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
+import soundfile as sf
+from python_speech_features import mfcc
 
-# def extract_features(file_path):
-#     try:
-#         audio, sample_rate = librosa.load(file_path, sr=None)
-#         mfccs_features = librosa.feature.mfcc(y=audio, sr=sample_rate, n_mfcc=40).T
-#         return mfccs_features
-#     except Exception as e:
-#         print(f"Lỗi khi xử lý file {file_path}: {e}")
-#         return None
-
-## Định nghĩa các tham số cơ bản
-SR = 22050 #tần số lấy mẫu
-N_FFT = 512 #int(0.025*SR) # khoảng lấy mẫu fft 25ms
-N_HOP = 256 #int(0.010*SR) # bước nhảy giữa 2 frame
+SR = 22050
 N_MFCC = 13
-N_MELS =40
-TOP_DB = 40
-pre_emphasis = 0.95
+
 def extract_features(file_path):
     try:
-        
-        audio, sample_rate = librosa.load(file_path, sr=SR)
-        audio, index = librosa.effects.trim(audio, top_db=TOP_DB)
-        y = np.append(audio[0], audio[1:] - pre_emphasis * audio[:-1])
-        mfcc = librosa.feature.mfcc(
-        y=y,
-        sr=sample_rate,
-        n_mfcc=N_MFCC,          # số hệ số cepstral đầu ra
-        n_fft=N_FFT,          # kích thước FFT
-        hop_length=N_HOP,     # khoảng nhảy giữa các frame
-        n_mels=N_MELS,          # số filter Mel
-        fmin=300,           # tần số thấp nhất
-        fmax=8000,          # tần số cao nhất
-        dct_type=2,         # kiểu biến đổi DCT
-        norm='ortho',       # chuẩn hóa DCT
-        lifter=22           # hệ số nâng cao cepstral
-        )
-        delta = librosa.feature.delta(mfcc)
-        delta2 = librosa.feature.delta(mfcc, order=2)
-        mfccs_features = np.vstack([mfcc, delta, delta2]).T
-        return mfccs_features
+        audio, sr = sf.read(file_path, always_2d=False)
+        # chuyển stereo -> mono
+        if audio.ndim > 1:
+            audio = np.mean(audio, axis=1)
+
+        audio = np.asarray(audio, dtype=np.float32)
+
+        # pre-emphasis
+        audio = np.append(audio[0], audio[1:] - 0.95 * audio[:-1])
+
+        # MFCC (num_frames, N_MFCC)
+        feats = mfcc(signal=audio, samplerate=sr, numcep=N_MFCC, nfft=512)
+        return feats
     except Exception as e:
         print(f"Lỗi khi xử lý file {file_path}: {e}")
         return None
-
-
-
-
-
 
 def read_dataset_and_save_feture(root_folder_path, save_path):
     features_list = []

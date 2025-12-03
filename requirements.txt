@@ -8,3 +8,4 @@ audioread
 tqdm
 scipy
 pydub
+python_speech_features

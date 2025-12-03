@@ -1,9 +1,11 @@
-import os, json, pickle
+import os
+import sys
+import json
+import pickle
 import numpy as np
 from flask import Flask, request, jsonify, send_from_directory
 
 # Alias để giải quyết pickle tham chiếu 'modules' và 'modules.HMM'
-import sys
 import HMM as _hmm_module
 sys.modules.setdefault('modules', _hmm_module)
 sys.modules.setdefault('modules.HMM', _hmm_module)
@@ -16,7 +18,7 @@ from training import load_model  # dùng hàm load_model từ training.py
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_DIR = os.path.join(BASE_DIR, "hmm_model_1")
 
-# Tải mô hình qua training.load_model
+# Tải mô hình
 models_loaded, scaler, metrics, summary = load_model(MODEL_DIR)
 class_names_loaded = summary.get("class_names", [])
 
@@ -38,23 +40,28 @@ def predict():
     with open(tmp_path, "wb") as f:
         f.write(data)
 
-    mfcc = extract_features(tmp_path)
-    if mfcc is None or len(mfcc) == 0:
+    mfcc_feats = extract_features(tmp_path)
+    if mfcc_feats is None or len(mfcc_feats) == 0:
         return jsonify({"error": "Feature extraction failed"}), 400
 
-    mfcc_scaled = scaler.transform(mfcc)
+    # Chuẩn hóa theo scaler đã lưu
+    mfcc_scaled = scaler.transform(mfcc_feats)
 
+    # Tính log-prob mỗi model
     log_probs = []
     for model in models_loaded:
         if model is None:
             log_probs.append(-np.inf)
         else:
+            # giả định model.forward trả về (log_prob, ...)
             log_probs.append(model.forward(mfcc_scaled)[0])
 
     pred_idx = int(np.argmax(log_probs))
     pred_class = class_names_loaded[pred_idx] if class_names_loaded else str(pred_idx)
+
     lp = np.array(log_probs)
-    probs = np.exp(lp - lp.max()); probs = probs / probs.sum()
+    probs = np.exp(lp - lp.max())
+    probs = probs / probs.sum()
     conf = float(probs[pred_idx])
 
     try:
