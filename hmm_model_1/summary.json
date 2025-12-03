@@ -1,0 +1,20 @@
+{
+    "model_name": "hmm_model_20251113_084315",
+    "save_time": "2025-11-13 08:43:15",
+    "num_classes": 10,
+    "class_names": [
+        "zero",
+        "one",
+        "two",
+        "three",
+        "four",
+        "five",
+        "six",
+        "seven",
+        "eight",
+        "nine"
+    ],
+    "accuracy": 0.9270588235294117,
+    "f1_macro": 0.9270931667267934,
+    "f1_weighted": 0.9270931667267934
+}
