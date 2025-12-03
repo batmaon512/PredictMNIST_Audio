@@ -3,72 +3,121 @@
 <head>
   <meta charset="UTF-8" />
   <title>PredictMNIST Audio</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    button { margin: 8px; padding: 8px 12px; }
-    #status { margin-top: 8px; }
-    #result { white-space: pre-wrap; margin-top: 10px; }
-    audio { display:block; margin-top:10px; }
+    :root {
+      --bg: #0f172a;
+      --card: #111827;
+      --accent: #3b82f6;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --success: #22c55e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; display: grid; place-items: center;
+      background: radial-gradient(1200px 500px at 20% 10%, #0b1220 0%, var(--bg) 40%, #030712 100%);
+      color: var(--text); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+      padding: 24px;
+    }
+    .card {
+      width: 100%; max-width: 720px; background: linear-gradient(180deg, #0b0f1a, var(--card));
+      border: 1px solid #1f2937; border-radius: 16px; padding: 24px; box-shadow: 0 20px 40px rgba(0,0,0,.35);
+    }
+    .header {
+      display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;
+    }
+    .title { font-size: 20px; font-weight: 700; letter-spacing: .2px; }
+    .chip { font-size: 12px; padding: 6px 10px; border-radius: 999px; border: 1px solid #334155; color: var(--muted); }
+    .controls { display: flex; gap: 10px; margin: 12px 0 20px; flex-wrap: wrap; }
+    button {
+      all: unset; cursor: pointer; padding: 10px 14px; border-radius: 10px;
+      font-weight: 600; font-size: 14px; letter-spacing: .2px; transition: .2s ease;
+    }
+    .btn-primary { background: linear-gradient(180deg, #2563eb, var(--accent)); color: white; }
+    .btn-primary:hover { filter: brightness(1.05); transform: translateY(-1px); }
+    .btn-secondary {
+      background: #1f2937; color: var(--text); border: 1px solid #334155;
+    }
+    .btn-secondary:disabled { opacity: .5; cursor: not-allowed; }
+    .status { font-size: 13px; color: var(--muted); min-height: 18px; }
+    .preview { background: #0b1220; border: 1px solid #1f2937; border-radius: 12px; padding: 12px; }
+    audio { width: 100%; margin-top: 6px; }
+    .result {
+      margin-top: 16px; padding: 14px; border-radius: 12px;
+      background: rgba(34,197,94,.1); border: 1px solid rgba(34,197,94,.35);
+      display: flex; align-items: center; gap: 12px;
+    }
+    .badge {
+      background: var(--success); color: white; font-weight: 700;
+      padding: 8px 12px; border-radius: 10px; font-size: 16px;
+    }
+    .label { font-size: 16px; font-weight: 600; }
+    .hint { font-size: 12px; color: var(--muted); margin-top: 8px; }
   </style>
 </head>
 <body>
-  <h1>Ghi âm và dự đoán</h1>
-  <button id="startBtn">Bắt đầu ghi</button>
-  <button id="stopBtn" disabled>Dừng ghi</button>
-  <div id="status"></div>
-  <audio id="player" controls></audio>
-  <div id="result"></div>
+  <div class="card">
+    <div class="header">
+      <div class="title">Ghi âm và dự đoán chữ số</div>
+      <div class="chip">Live Demo</div>
+    </div>
+
+    <div class="controls">
+      <button id="startBtn" class="btn-primary">Bắt đầu ghi</button>
+      <button id="stopBtn" class="btn-secondary" disabled>Dừng ghi</button>
+      <button id="clearBtn" class="btn-secondary">Xóa kết quả</button>
+    </div>
+
+    <div id="status" class="status">Sẵn sàng.</div>
+
+    <div class="preview">
+      <div style="font-weight:600; font-size:14px; color:var(--muted)">Bản ghi gần nhất</div>
+      <audio id="player" controls></audio>
+    </div>
+
+    <div id="result" class="result" style="display:none">
+      <div class="badge" id="predLabel">?</div>
+      <div class="label">Dự đoán: <span id="predText">-</span></div>
+    </div>
+
+    <div class="hint">Mẹo: hãy nói rõ ràng một chữ số (zero đến nine).</div>
+  </div>
 
   <script>
     const startBtn = document.getElementById('startBtn');
     const stopBtn = document.getElementById('stopBtn');
+    const clearBtn = document.getElementById('clearBtn');
     const statusEl = document.getElementById('status');
     const player = document.getElementById('player');
-    const resultEl = document.getElementById('result');
+    const resultBox = document.getElementById('result');
+    const predLabel = document.getElementById('predLabel');
+    const predText = document.getElementById('predText');
 
-    let mediaRecorder;
-    let audioChunks = [];
-    let stream;
+    let stream, mediaRecorder, audioChunks = [];
 
-    // Ghi thành WAV ở client (PCM 16-bit) để backend đọc dễ bằng soundfile
+    // WAV encoder (mono, 16-bit PCM)
     function encodeWAVFromPCM(float32Array, sampleRate = 44100) {
-      // Chuyển float [-1,1] -> PCM16
-      const bufferLength = float32Array.length;
-      const pcm16 = new Int16Array(bufferLength);
-      for (let i = 0; i < bufferLength; i++) {
-        let s = Math.max(-1, Math.min(1, float32Array[i]));
+      const pcm16 = new Int16Array(float32Array.length);
+      for (let i = 0; i < float32Array.length; i++) {
+        const s = Math.max(-1, Math.min(1, float32Array[i]));
         pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
       }
-      // WAV header
-      const byteRate = sampleRate * 2; // mono 16-bit
-      const blockAlign = 2;
       const dataSize = pcm16.length * 2;
       const buffer = new ArrayBuffer(44 + dataSize);
       const view = new DataView(buffer);
-
-      function writeString(view, offset, string) {
-        for (let i = 0; i < string.length; i++) {
-          view.setUint8(offset + i, string.charCodeAt(i));
-        }
-      }
-
       let offset = 0;
-      writeString(view, offset, 'RIFF'); offset += 4;
-      view.setUint32(offset, 36 + dataSize, true); offset += 4;
-      writeString(view, offset, 'WAVE'); offset += 4;
-      writeString(view, offset, 'fmt '); offset += 4;
-      view.setUint32(offset, 16, true); offset += 4;             // fmt chunk size
-      view.setUint16(offset, 1, true); offset += 2;              // audio format PCM
-      view.setUint16(offset, 1, true); offset += 2;              // channels: mono
-      view.setUint32(offset, sampleRate, true); offset += 4;     // sample rate
-      view.setUint32(offset, byteRate, true); offset += 4;       // byte rate
-      view.setUint16(offset, blockAlign, true); offset += 2;     // block align
-      view.setUint16(offset, 16, true); offset += 2;             // bits per sample
-      writeString(view, offset, 'data'); offset += 4;
-      view.setUint32(offset, dataSize, true); offset += 4;
-      // PCM data
-      for (let i = 0; i < pcm16.length; i++, offset += 2) {
-        view.setInt16(offset, pcm16[i], true);
-      }
+      function wstr(s){ for(let i=0;i<s.length;i++) view.setUint8(offset++, s.charCodeAt(i)); }
+      wstr('RIFF'); view.setUint32(offset, 36 + dataSize, true); offset += 4;
+      wstr('WAVE'); wstr('fmt '); view.setUint32(offset, 16, true); offset += 4;
+      view.setUint16(offset, 1, true); offset += 2; // PCM
+      view.setUint16(offset, 1, true); offset += 2; // mono
+      view.setUint32(offset, sampleRate, true); offset += 4;
+      view.setUint32(offset, sampleRate * 2, true); offset += 4;
+      view.setUint16(offset, 2, true); offset += 2;
+      view.setUint16(offset, 16, true); offset += 2;
+      wstr('data'); view.setUint32(offset, dataSize, true); offset += 4;
+      for (let i = 0; i < pcm16.length; i++, offset += 2) view.setInt16(offset, pcm16[i], true);
       return new Blob([view], { type: 'audio/wav' });
     }
 
@@ -76,23 +125,14 @@
       try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         statusEl.textContent = 'Đang ghi...';
-        startBtn.disabled = true;
-        stopBtn.disabled = false;
+        startBtn.disabled = true; stopBtn.disabled = false;
 
-        // Dùng WebAudio để lấy PCM và tự encode WAV
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 44100 });
         const source = audioCtx.createMediaStreamSource(stream);
-
         const processor = audioCtx.createScriptProcessor(4096, 1, 1);
         audioChunks = [];
-        processor.onaudioprocess = (e) => {
-          const input = e.inputBuffer.getChannelData(0);
-          audioChunks.push(new Float32Array(input));
-        };
-        source.connect(processor);
-        processor.connect(audioCtx.destination);
-
-        // Lưu tham chiếu để dừng sau
+        processor.onaudioprocess = e => audioChunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+        source.connect(processor); processor.connect(audioCtx.destination);
         mediaRecorder = { audioCtx, source, processor, sampleRate: audioCtx.sampleRate };
       } catch (err) {
         statusEl.textContent = 'Không thể truy cập microphone: ' + err;
@@ -100,34 +140,18 @@
     }
 
     async function stopRecording() {
-      stopBtn.disabled = true;
-      startBtn.disabled = false;
+      stopBtn.disabled = true; startBtn.disabled = false;
       statusEl.textContent = 'Đang xử lý...';
 
-      // Dừng WebAudio pipeline
-      try {
-        mediaRecorder.processor.disconnect();
-        mediaRecorder.source.disconnect();
-        mediaRecorder.audioCtx.close();
-      } catch {}
+      try { mediaRecorder.processor.disconnect(); mediaRecorder.source.disconnect(); await mediaRecorder.audioCtx.close(); } catch {}
+      if (stream) stream.getTracks().forEach(t => t.stop());
 
-      if (stream) {
-        stream.getTracks().forEach(t => t.stop());
-      }
-
-      // Ghép các chunk float32 rồi encode WAV
-      const totalLen = audioChunks.reduce((sum, a) => sum + a.length, 0);
+      const totalLen = audioChunks.reduce((s,a)=>s+a.length,0);
       const merged = new Float32Array(totalLen);
-      let offset = 0;
-      for (const a of audioChunks) {
-        merged.set(a, offset);
-        offset += a.length;
-      }
+      let off = 0; for (const a of audioChunks) { merged.set(a, off); off += a.length; }
       const wavBlob = encodeWAVFromPCM(merged, 44100);
 
-      // Hiển thị và gửi lên server
-      const url = URL.createObjectURL(wavBlob);
-      player.src = url;
+      player.src = URL.createObjectURL(wavBlob);
 
       const formData = new FormData();
       formData.append('audio', wavBlob, 'recording.wav');
@@ -135,15 +159,31 @@
       try {
         const resp = await fetch('/predict', { method: 'POST', body: formData });
         const data = await resp.json();
-        resultEl.textContent = JSON.stringify(data, null, 2);
-        statusEl.textContent = 'Xong.';
+        if (data && data.label) {
+          const label = String(data.label);
+          predLabel.textContent = label;
+          predText.textContent = label;
+          resultBox.style.display = 'flex';
+          statusEl.textContent = 'Xong.';
+        } else {
+          statusEl.textContent = 'Không nhận diện được.';
+        }
       } catch (e) {
         statusEl.textContent = 'Gửi thất bại: ' + e;
       }
     }
 
+    function clearResult() {
+      resultBox.style.display = 'none';
+      predLabel.textContent = '?';
+      predText.textContent = '-';
+      statusEl.textContent = 'Sẵn sàng.';
+      player.removeAttribute('src');
+    }
+
     startBtn.addEventListener('click', startRecording);
     stopBtn.addEventListener('click', stopRecording);
+    clearBtn.addEventListener('click', clearResult);
   </script>
 </body>
 </html>
