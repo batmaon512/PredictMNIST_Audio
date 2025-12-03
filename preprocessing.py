@@ -1,25 +1,32 @@
 import os
 import numpy as np
 import soundfile as sf
-from python_speech_features import mfcc
+from python_speech_features import mfcc, delta
 
 SR = 22050
 N_MFCC = 13
+NFFT = 2048  # lớn hơn độ dài frame để tránh cảnh báo
 
 def extract_features(file_path):
     try:
         audio, sr = sf.read(file_path, always_2d=False)
-        # chuyển stereo -> mono
         if audio.ndim > 1:
             audio = np.mean(audio, axis=1)
-
         audio = np.asarray(audio, dtype=np.float32)
 
-        # pre-emphasis
+        # Nếu sample rate khác SR, vẫn dùng sr hiện có để tránh resample nặng
+        # Pre-emphasis
         audio = np.append(audio[0], audio[1:] - 0.95 * audio[:-1])
 
-        # MFCC (num_frames, N_MFCC)
-        feats = mfcc(signal=audio, samplerate=sr, numcep=N_MFCC, nfft=512)
+        # MFCC 13 dims
+        mfcc_ = mfcc(signal=audio, samplerate=sr, numcep=N_MFCC, nfft=NFFT)
+
+        # Delta và Delta-Delta
+        d1 = delta(mfcc_, 2)
+        d2 = delta(d1, 2)
+
+        # Ghép thành 39 dims theo trục đặc trưng
+        feats = np.hstack([mfcc_, d1, d2])  # shape: (frames, 39)
         return feats
     except Exception as e:
         print(f"Lỗi khi xử lý file {file_path}: {e}")
